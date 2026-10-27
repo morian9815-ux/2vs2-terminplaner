@@ -84,29 +84,121 @@
     return `<span class="${cls}" title="${esc(name || 'Ohne Logo')}"><span>${isDummy ? '🎟' : esc(teamInitials(name))}</span></span>`;
   }
 
-  async function api(path, { method = 'GET', body } = {}) {
-    const headers = { Accept: 'application/json' };
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
-    const token = sessionStorage.getItem(SS_ADMIN);
-    if (token) headers.Authorization = 'Bearer ' + token;
-    let res;
-    try {
-      res = await fetch('/api' + path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, cache: 'no-store' });
-    } catch {
-      throw new Error('Keine Verbindung zum Server. Bitte Internetverbindung prüfen.');
+  // ---------- Globaler Top-Ladebalken (YouTube / GitHub Style) ----------
+  let activeApiRequests = 0;
+  let topLoaderTimer = null;
+
+  function startTopLoader() {
+    activeApiRequests++;
+    let loader = document.getElementById('top-loader');
+    if (!loader) {
+      loader = document.createElement('div');
+      loader.id = 'top-loader';
+      document.body.prepend(loader);
     }
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      if (res.status === 401 && token && !path.startsWith('/admin/login')) {
-        sessionStorage.removeItem(SS_ADMIN);
-        toast('Admin-Sitzung abgelaufen – bitte neu anmelden.', 'error');
-        setTimeout(() => go('#/'), 0);
+    loader.classList.remove('done');
+    loader.classList.add('active');
+    if (activeApiRequests === 1) {
+      loader.style.width = '30%';
+      clearTimeout(topLoaderTimer);
+      topLoaderTimer = setTimeout(() => {
+        if (activeApiRequests > 0) loader.style.width = '65%';
+        topLoaderTimer = setTimeout(() => {
+          if (activeApiRequests > 0) loader.style.width = '88%';
+        }, 1200);
+      }, 350);
+    }
+  }
+
+  function stopTopLoader() {
+    activeApiRequests = Math.max(0, activeApiRequests - 1);
+    if (activeApiRequests === 0) {
+      clearTimeout(topLoaderTimer);
+      const loader = document.getElementById('top-loader');
+      if (loader) {
+        loader.style.width = '100%';
+        loader.classList.add('done');
+        setTimeout(() => {
+          if (activeApiRequests === 0) {
+            loader.classList.remove('active', 'done');
+            loader.style.width = '0%';
+          }
+        }, 320);
       }
-      const err = new Error(data.error || `Fehler ${res.status}`);
-      err.status = res.status;
-      throw err;
     }
-    return data;
+  }
+
+  // ---------- Universelles Button-Lade-Feedback ----------
+  function autoLoadingText(originalText) {
+    const t = String(originalText || '').trim().toLowerCase();
+    if (t.includes('login') || t.includes('einloggen') || t.includes('weiter als')) return 'Wird eingeloggt …';
+    if (t.includes('speichern') || t.includes('speichere')) return 'Speichert …';
+    if (t.includes('übernehmen') || t.includes('kopieren')) return 'Übernimmt …';
+    if (t.includes('vorschlag') || t.includes('senden') || t.includes('schicken')) return 'Wird gesendet …';
+    if (t.includes('löschen') || t.includes('entfernen')) return 'Wird gelöscht …';
+    if (t.includes('bestätigen') || t.includes('einigung')) return 'Bestätigt …';
+    if (t.includes('generieren') || t.includes('berechnen')) return 'Berechnet …';
+    return 'Lädt …';
+  }
+
+  function setBtnLoading(btn, loading, customText) {
+    if (!btn) return;
+    if (loading) {
+      if (!btn.dataset.prevHtml) {
+        btn.dataset.prevHtml = btn.innerHTML;
+      }
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+      const txt = customText || autoLoadingText(btn.textContent);
+      btn.innerHTML = `<span class="btn-spinner"></span><span>${esc(txt)}</span>`;
+    } else {
+      btn.disabled = false;
+      btn.classList.remove('is-loading');
+      if (btn.dataset.prevHtml) {
+        btn.innerHTML = btn.dataset.prevHtml;
+        delete btn.dataset.prevHtml;
+      }
+    }
+  }
+
+  // ---------- Server-Vorglühen (Cold-Start Reduzierung) ----------
+  let lastPrewarmTime = 0;
+  function prewarmServer() {
+    const now = Date.now();
+    if (now - lastPrewarmTime > 25000) { // max alle 25 Sekunden
+      lastPrewarmTime = now;
+      fetch('/api/health', { cache: 'no-store' }).catch(() => {});
+    }
+  }
+
+  async function api(path, { method = 'GET', body } = {}) {
+    startTopLoader();
+    try {
+      const headers = { Accept: 'application/json' };
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      const token = sessionStorage.getItem(SS_ADMIN);
+      if (token) headers.Authorization = 'Bearer ' + token;
+      let res;
+      try {
+        res = await fetch('/api' + path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, cache: 'no-store' });
+      } catch {
+        throw new Error('Keine Verbindung zum Server. Bitte Internetverbindung prüfen.');
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 401 && token && !path.startsWith('/admin/login')) {
+          sessionStorage.removeItem(SS_ADMIN);
+          toast('Admin-Sitzung abgelaufen – bitte neu anmelden.', 'error');
+          setTimeout(() => go('#/'), 0);
+        }
+        const err = new Error(data.error || `Fehler ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    } finally {
+      stopTopLoader();
+    }
   }
 
   function toast(msg, type = 'ok') {
@@ -143,7 +235,7 @@
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         if (!onConfirm) return close(true);
-        submit.disabled = true;
+        setBtnLoading(submit, true);
         errBox.hidden = true;
         try {
           const result = await onConfirm(form);
@@ -151,7 +243,7 @@
         } catch (err) {
           errBox.textContent = err.message;
           errBox.hidden = false;
-          submit.disabled = false;
+          setBtnLoading(submit, false);
         }
       });
       requestAnimationFrame(() => {
@@ -388,21 +480,38 @@
       input.setAttribute('aria-expanded', 'false');
       loginBtn.disabled = false;
       loginBtn.textContent = `Einloggen als ${p.name}`;
+      prewarmServer();
       loginBtn.focus();
     };
-    const login = (p) => { S.selectedWeek = null; localStorage.setItem(LS_PLAYER, String(p.id)); go('#/player'); };
+    const login = (p, btn) => {
+      if (btn) setBtnLoading(btn, true, 'Wird eingeloggt …');
+      S.selectedWeek = null;
+      localStorage.setItem(LS_PLAYER, String(p.id));
+      go('#/player');
+    };
 
     input.addEventListener('input', () => {
       selected = null; active = -1;
       loginBtn.disabled = true; loginBtn.textContent = 'Einloggen';
+      prewarmServer();
       renderList();
     });
-    input.addEventListener('focus', () => { if (!selected) renderList(); });
+    input.addEventListener('focus', () => {
+      prewarmServer();
+      if (!selected) renderList();
+    });
     input.addEventListener('keydown', (e) => {
-      if (list.hidden && e.key === 'Enter' && selected) { login(selected); return; }
+      if (list.hidden && e.key === 'Enter' && selected) { login(selected, loginBtn); return; }
       if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, results.length - 1); renderList(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); renderList(); }
-      else if (e.key === 'Enter') { e.preventDefault(); const p = results[active >= 0 ? active : 0]; if (p) choose(p); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        const p = results[active >= 0 ? active : 0];
+        if (p) {
+          choose(p);
+          login(p, loginBtn);
+        }
+      }
       else if (e.key === 'Escape') { list.hidden = true; }
       list.querySelector('li.active')?.scrollIntoView({ block: 'nearest' });
     });
@@ -413,8 +522,10 @@
     const outside = (e) => { if (!e.target.closest('.search')) list.hidden = true; };
     document.addEventListener('mousedown', outside);
     onCleanup(() => document.removeEventListener('mousedown', outside));
-    loginBtn.addEventListener('click', () => selected && login(selected));
-    document.getElementById('continue-btn')?.addEventListener('click', () => login(remembered));
+    loginBtn.addEventListener('click', () => selected && login(selected, loginBtn));
+    document.getElementById('continue-btn')?.addEventListener('click', (e) => {
+      login(remembered, e.currentTarget);
+    });
     document.getElementById('admin-login-btn').addEventListener('click', openAdminLogin);
   }
 
@@ -1439,6 +1550,12 @@
       </div>`;
     document.getElementById('back-btn').addEventListener('click', () => go('#/player'));
     document.getElementById('notif-center-btn')?.addEventListener('click', () => openNotificationCenter(me));
+    requestAnimationFrame(() => {
+      const act = document.querySelector('.week-switch a.active');
+      if (act && typeof act.scrollIntoView === 'function') {
+        act.scrollIntoView({ inline: 'center', block: 'nearest' });
+      }
+    });
     const body = document.getElementById('pv-body');
 
     if (mode === 'mine') {
@@ -1549,8 +1666,7 @@
         const sourceId = sel?.value;
         if (!sourceId) return;
         const sourcePhase = getPhase(sourceId);
-        copyBtn.disabled = true;
-        copyBtn.textContent = 'Lade Vorlage …';
+        setBtnLoading(copyBtn, true, 'Übernimmt …');
         try {
           const res = await api(`/players/${me.player.id}/availability/${sourceId}`);
           if (!res.cells || !res.cells.length) {
@@ -1570,16 +1686,13 @@
         } catch (err) {
           toast('Fehler beim Laden der Vorlage: ' + err.message, 'error');
         } finally {
-          copyBtn.disabled = false;
-          copyBtn.textContent = '📋 Zeiten jetzt übernehmen';
+          setBtnLoading(copyBtn, false);
         }
       });
     }
 
     saveBtn.addEventListener('click', async () => {
-      saveBtn.disabled = true;
-      saveBtn.classList.add('loading');
-      saveBtn.querySelector('.btn-label').textContent = 'Speichere …';
+      setBtnLoading(saveBtn, true, 'Speichert …');
       try {
         const payload = [...cells].map(([k, status]) => { const [date, hour] = k.split('|'); return { date, hour: Number(hour), status }; });
         await api(`/players/${me.player.id}/availability/${phase.id}`, { method: 'PUT', body: { cells: payload } });
@@ -1587,14 +1700,15 @@
         savedOnce = true;
         if (!me.savedPhases.includes(phase.id)) me.savedPhases.push(phase.id);
         toast(`Zeiten für „Woche ${phase.week} (${phase.name})“ gespeichert!`);
-        saveBtn.querySelector('.btn-label').textContent = '✓ Gespeichert';
-        setTimeout(() => { saveBtn.querySelector('.btn-label').textContent = '💾 Zeiten speichern'; }, 1800);
+        setBtnLoading(saveBtn, false);
+        if (saveBtn.querySelector('.btn-label')) saveBtn.querySelector('.btn-label').textContent = '✓ Gespeichert';
+        setTimeout(() => {
+          if (saveBtn.querySelector('.btn-label')) saveBtn.querySelector('.btn-label').textContent = '💾 Zeiten speichern';
+        }, 1800);
       } catch (err) {
         toast('Speichern fehlgeschlagen: ' + err.message, 'error');
-        saveBtn.querySelector('.btn-label').textContent = '💾 Zeiten speichern';
+        setBtnLoading(saveBtn, false);
       } finally {
-        saveBtn.disabled = false;
-        saveBtn.classList.remove('loading');
         updateState();
       }
     });
@@ -2321,7 +2435,7 @@
       body.querySelector('#submit-propose-btn')?.addEventListener('click', async (e) => {
         if (!mePlayer || selectedPropose.size === 0) return;
         const btn = e.currentTarget;
-        btn.disabled = true;
+        setBtnLoading(btn, true, 'Wird gesendet …');
         try {
           await api(`/matchups/${matchupId}/propose`, {
             method: 'POST',
@@ -2333,7 +2447,8 @@
           await load();
         } catch (err) {
           toast(err.message, 'error');
-          btn.disabled = false;
+        } finally {
+          setBtnLoading(btn, false);
         }
       });
 
