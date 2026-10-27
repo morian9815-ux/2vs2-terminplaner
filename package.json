@@ -1,0 +1,19 @@
+{
+  "name": "2vs2-terminplaner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloud-basiertes Terminfindungs-Tool für die Walkabout Wunderland 2vs2 Liga",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed:demo": "node scripts/seed-demo.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}
