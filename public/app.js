@@ -328,7 +328,6 @@
         <div class="login-hero">
           ${brand()}
           <h1 class="hero-title">Finde deinen <span>Spieltermin</span></h1>
-          <p class="hero-sub">2 gegen 2 · 4 Spieler pro Match · 8 Ligen · 5W Hinrunde · 1W Pause · 5W Rückrunde</p>
         </div>
         <section class="card metal login-card">
           <h2>Spieler-Login</h2>

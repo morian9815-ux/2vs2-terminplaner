@@ -98,6 +98,7 @@ async function createPostgres(rawUrl) {
   const pool = new Pool({ connectionString, ssl, max: Number(process.env.PG_POOL_MAX || 5) });
 
   const make = (runner) => ({
+    kind: 'postgres',
     all: async (sql, params = []) => (await runner.query(toPg(sql), params)).rows,
     get: async (sql, params = []) => (await runner.query(toPg(sql), params)).rows[0],
     run: async (sql, params = []) => ({ changes: (await runner.query(toPg(sql), params)).rowCount }),
@@ -162,6 +163,7 @@ function createSqlite() {
   };
 
   const runner = {
+    kind: 'sqlite',
     all: async (sql, params = []) => execWithRetry(() => sdb.prepare(sql).all(...params).map(norm)),
     get: async (sql, params = []) => execWithRetry(() => norm(sdb.prepare(sql).get(...params))),
     run: async (sql, params = []) => execWithRetry(() => ({ changes: Number(sdb.prepare(sql).run(...params).changes) })),

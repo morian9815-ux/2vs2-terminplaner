@@ -41,7 +41,7 @@ const MAX_PLAYERS_PER_TEAM = 2;
 let db;
 let dbReadyPromise = null;
 
-function ensureDb() {
+async function ensureDb() {
   if (!dbReadyPromise) {
     dbReadyPromise = (async () => {
       const database = await initDb();
@@ -53,17 +53,29 @@ function ensureDb() {
         } else {
           await db.run("INSERT INTO settings (key, value) VALUES ('season_start', ?)", [DEFAULT_SEASON_START]);
         }
-        if (process.env.AUTO_SEED !== 'false') {
-          await seedDemoData(db);
-        }
-        await autoAssignTeamLogos(db);
       } catch (err) {
-        console.error('Hinweis beim Demo-Seed / Logo-Abgleich:', err.message);
+        console.error('Hinweis beim Laden der Settings:', err.message);
       }
       return db;
     })();
   }
-  return dbReadyPromise;
+  await dbReadyPromise;
+
+  if (process.env.AUTO_SEED !== 'false') {
+    try {
+      const teamCheck = await db.get('SELECT COUNT(*) AS cnt FROM teams');
+      const teamCount = Number(teamCheck?.cnt || 0);
+      if (teamCount < 44) {
+        console.log(`Datenbank hat nur ${teamCount} Teams. Starte automatischen Seed...`);
+        await seedDemoData(db, { force: true });
+        await autoAssignTeamLogos(db);
+      }
+    } catch (err) {
+      console.error('Hinweis beim Demo-Seed / Logo-Abgleich:', err.message);
+    }
+  }
+
+  return db;
 }
 
 const app = express();
@@ -378,7 +390,14 @@ function parseTeamId(value) {
 // ---------- Öffentliche API ----------
 app.get('/api/health', wrap(async (req, res) => {
   await db.get('SELECT 1 AS ok');
-  res.json({ ok: true, db: db.kind });
+  const tRow = await db.get('SELECT COUNT(*) AS cnt FROM teams');
+  const mRow = await db.get('SELECT COUNT(*) AS cnt FROM matchups');
+  res.json({
+    ok: true,
+    db: db.kind,
+    teams: Number(tRow?.cnt || 0),
+    matchups: Number(mRow?.cnt || 0)
+  });
 }));
 
 app.get('/api/settings', wrap(async (req, res) => {

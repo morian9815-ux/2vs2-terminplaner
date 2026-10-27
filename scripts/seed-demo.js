@@ -48,63 +48,53 @@ async function seedDemoData(db, { force = false } = {}) {
   const availableLogos = listAvailableLogos();
 
   return await db.tx(async (tx) => {
+    const kind = tx.kind || db.kind;
+
     try { await tx.run('DELETE FROM notifications'); } catch { /* ignore */ }
     await tx.run('DELETE FROM availabilities');
     await tx.run('DELETE FROM matchups');
     await tx.run('DELETE FROM players');
     await tx.run('DELETE FROM teams');
-    try { await tx.run('DELETE FROM sqlite_sequence'); } catch { /* ignore */ }
+
+    if (kind === 'sqlite') {
+      try { await tx.run('DELETE FROM sqlite_sequence'); } catch { /* ignore */ }
+    }
+
     try {
       await tx.run('DELETE FROM settings WHERE key = ?', ['season_start']);
       await tx.run('INSERT INTO settings (key, value) VALUES (?, ?)', ['season_start', currentStart]);
     } catch { /* ignore */ }
 
+    const allTeamsToInsert = [];
+    const allPlayersToInsert = [];
     const teamsByLeague = new Map();
-    const allCreatedTeams = [];
     let realTeamCount = 0;
     let dummyTeamCount = 0;
     let playerCount = 0;
 
-    // 1. Alle 8 Ligen mit ihren Teams (mit Original-Team-ID) und Spielern (mit Original-Spieler-ID) anlegen
+    // 1. Teams und Spieler sammeln
     for (const lg of LEAGUE_TEAMS) {
       const lgTeams = [];
       for (const tDef of lg.teams) {
         const isDummy = tDef.is_dummy ? 1 : 0;
         const logo = isDummy ? null : matchLogoForTeamName(tDef.name, availableLogos);
-        let teamId = tDef.id || null;
-        if (teamId) {
-          await tx.run(
-            'INSERT INTO teams (id, name, logo, league_id, is_dummy) VALUES (?, ?, ?, ?, ?)',
-            [teamId, tDef.name, logo, lg.league_id, isDummy]
-          );
-        } else {
-          const tRow = await tx.get(
-            'INSERT INTO teams (name, logo, league_id, is_dummy) VALUES (?, ?, ?, ?) RETURNING id',
-            [tDef.name, logo, lg.league_id, isDummy]
-          );
-          teamId = tRow.id;
-        }
+        const teamId = tDef.id;
+        allTeamsToInsert.push({
+          id: teamId,
+          name: tDef.name,
+          logo,
+          league_id: lg.league_id,
+          is_dummy: isDummy,
+        });
 
         const pObjs = [];
         if (!isDummy) {
           realTeamCount++;
-          for (const p of tDef.players.slice(0, 2)) {
+          for (const p of (tDef.players || []).slice(0, 2)) {
             const pName = typeof p === 'string' ? p : p.name;
             const pId = typeof p === 'object' && p.id ? p.id : null;
-            let finalPid = pId;
-            if (pId) {
-              await tx.run(
-                'INSERT INTO players (id, name, team_id) VALUES (?, ?, ?)',
-                [pId, pName, teamId]
-              );
-            } else {
-              const pRow = await tx.get(
-                'INSERT INTO players (name, team_id) VALUES (?, ?) RETURNING id',
-                [pName, teamId]
-              );
-              finalPid = pRow.id;
-            }
-            pObjs.push({ id: finalPid, name: pName, team_id: teamId });
+            allPlayersToInsert.push({ id: pId, name: pName, team_id: teamId });
+            pObjs.push({ id: pId, name: pName, team_id: teamId });
             playerCount++;
           }
         } else {
@@ -120,53 +110,61 @@ async function seedDemoData(db, { force = false } = {}) {
           players: pObjs,
         };
         lgTeams.push(teamObj);
-        allCreatedTeams.push(teamObj);
       }
       teamsByLeague.set(lg.league_id, lgTeams);
     }
 
-    // 2. Alle 240 offiziellen Saison-Paarungen anlegen
+    // 2. Teams batch-insert
+    if (allTeamsToInsert.length > 0) {
+      const tPlaceholders = allTeamsToInsert.map(() => '(?, ?, ?, ?, ?)').join(', ');
+      const tParams = allTeamsToInsert.flatMap((t) => [t.id, t.name, t.logo, t.league_id, t.is_dummy]);
+      await tx.run(
+        `INSERT INTO teams (id, name, logo, league_id, is_dummy) VALUES ${tPlaceholders}`,
+        tParams
+      );
+    }
+
+    // 3. Spieler batch-insert
+    if (allPlayersToInsert.length > 0) {
+      const pPlaceholders = allPlayersToInsert.map(() => '(?, ?, ?)').join(', ');
+      const pParams = allPlayersToInsert.flatMap((p) => [p.id, p.name, p.team_id]);
+      await tx.run(
+        `INSERT INTO players (id, name, team_id) VALUES ${pPlaceholders}`,
+        pParams
+      );
+    }
+
+    // 4. Alle 240 offiziellen Saison-Paarungen anlegen (in Blöcken für maximale Effizienz)
     let matchupCount = 0;
     if (Array.isArray(LEAGUE_MATCHES) && LEAGUE_MATCHES.length > 0) {
-      for (const m of LEAGUE_MATCHES) {
-        const isCompleted = m.status === 'COMPLETED' || m.status === 'WALKOVER' ? 1 : 0;
-        if (m.id) {
-          await tx.run(
-            `INSERT INTO matchups (
-              id, phase_id, team_a_id, team_b_id,
-              proposed_slots, proposed_by_team_id, proposed_by_player_name,
-              confirmed_slot, confirmed_by_player_name, is_completed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              m.id,
-              m.phase_id,
-              m.team_a_id,
-              m.team_b_id,
-              null,
-              null,
-              null,
-              m.confirmed_slot || null,
-              m.confirmed_by_player_name || null,
-              isCompleted,
-            ]
-          );
-        } else {
-          await tx.run(
-            `INSERT INTO matchups (
-              phase_id, team_a_id, team_b_id,
-              confirmed_slot, confirmed_by_player_name, is_completed
-            ) VALUES (?, ?, ?, ?, ?, ?)`,
-            [
-              m.phase_id,
-              m.team_a_id,
-              m.team_b_id,
-              m.confirmed_slot || null,
-              m.confirmed_by_player_name || null,
-              isCompleted,
-            ]
-          );
-        }
-        matchupCount++;
+      const CHUNK_SIZE = 60;
+      for (let i = 0; i < LEAGUE_MATCHES.length; i += CHUNK_SIZE) {
+        const chunk = LEAGUE_MATCHES.slice(i, i + CHUNK_SIZE);
+        const mPlaceholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+        const mParams = chunk.flatMap((m) => {
+          const isCompleted = m.status === 'COMPLETED' || m.status === 'WALKOVER' ? 1 : 0;
+          return [
+            m.id,
+            m.phase_id,
+            m.team_a_id,
+            m.team_b_id,
+            null,
+            null,
+            null,
+            m.confirmed_slot || null,
+            m.confirmed_by_player_name || null,
+            isCompleted,
+          ];
+        });
+        await tx.run(
+          `INSERT INTO matchups (
+            id, phase_id, team_a_id, team_b_id,
+            proposed_slots, proposed_by_team_id, proposed_by_player_name,
+            confirmed_slot, confirmed_by_player_name, is_completed
+          ) VALUES ${mPlaceholders}`,
+          mParams
+        );
+        matchupCount += chunk.length;
       }
     } else {
       for (const [, lgTeams] of teamsByLeague.entries()) {
@@ -181,16 +179,24 @@ async function seedDemoData(db, { force = false } = {}) {
       }
     }
 
-    // 3. SQLite-Autoincrement-Sequenzen aktualisieren
-    try {
+    // 5. Autoincrement-Sequenzen für neue Einträge synchronisieren
+    if (kind === 'postgres') {
       for (const tbl of ['teams', 'players', 'matchups']) {
-        const maxRow = await tx.get(`SELECT MAX(id) AS max_id FROM ${tbl}`);
-        if (maxRow?.max_id) {
-          await tx.run('DELETE FROM sqlite_sequence WHERE name = ?', [tbl]);
-          await tx.run('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)', [tbl, maxRow.max_id]);
-        }
+        await tx.run(
+          `SELECT setval(pg_get_serial_sequence('${tbl}', 'id'), coalesce((SELECT MAX(id) FROM ${tbl}), 1))`
+        );
       }
-    } catch { /* ignore */ }
+    } else if (kind === 'sqlite') {
+      try {
+        for (const tbl of ['teams', 'players', 'matchups']) {
+          const maxRow = await tx.get(`SELECT MAX(id) AS max_id FROM ${tbl}`);
+          if (maxRow?.max_id) {
+            await tx.run('DELETE FROM sqlite_sequence WHERE name = ?', [tbl]);
+            await tx.run('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)', [tbl, maxRow.max_id]);
+          }
+        }
+      } catch { /* ignore */ }
+    }
 
     console.log(
       `2vs2 Liga-Daten geladen: 8 Ligen, ${realTeamCount} echte Teams (${playerCount} Spieler), ${dummyTeamCount} Dummy-Teams, ${matchupCount} offizielle Saison-Paarungen.`
