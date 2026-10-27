@@ -308,7 +308,7 @@ input:disabled { opacity: 0.45; }
   position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 6px); margin: 0; padding: 6px; list-style: none;
   max-height: 300px; overflow-y: auto; border-radius: 12px; background: #262b30; border: 1px solid var(--line-2); box-shadow: var(--shadow);
 }
-.dropdown li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
+.dropdown li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
 .dropdown li:hover, .dropdown li.active { background: rgba(54, 217, 133, 0.14); }
 .dropdown li.empty { color: var(--muted); cursor: default; }
 .dropdown li.empty:hover { background: none; }

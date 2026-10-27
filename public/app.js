@@ -371,10 +371,9 @@
         ? results.map((p, i) => {
           const lg = getLeague(p.league_id);
           return `<li role="option" data-i="${i}" class="${i === active ? 'active' : ''}">
-            <span class="r-name">${highlight(p.name, q)} <small class="muted" style="font-weight: normal; opacity: 0.75;">#${p.id}</small></span>
+            <span class="r-name">${highlight(p.name, q)}</span>
             <span class="r-team">
               ${p.team_name ? `${teamLogoHTML(p.team_logo, p.team_name, 'xs')}<span>${highlight(p.team_name, q)}</span>` : '<em>ohne Team</em>'}
-              ${lg ? `<small class="r-league">${esc(lg.short)}</small>` : ''}
             </span>
           </li>`;
         }).join('')
