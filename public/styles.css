@@ -47,13 +47,6 @@ body {
   min-height: 100vh;
   font-family: var(--font);
   color: var(--text);
-  overflow-x: hidden;
-  max-width: 100%;
-}
-#app {
-  max-width: 100%;
-  overflow-x: hidden;
-}
   background-color: var(--bg-0);
   background-image:
     radial-gradient(1200px 500px at 50% -120px, rgba(220, 230, 240, 0.13), transparent 70%),
@@ -62,6 +55,12 @@ body {
     linear-gradient(180deg, #2b3036 0%, #1a1e22 40%, #111417 100%);
   background-attachment: fixed;
   line-height: 1.45;
+  overflow-x: hidden;
+  max-width: 100%;
+}
+#app {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 a { color: inherit; }
 button, input, select { font: inherit; color: inherit; }
