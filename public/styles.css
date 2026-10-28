@@ -2302,10 +2302,16 @@ input:disabled { opacity: 0.45; }
 }
 .focus-action-btn {
   font-size: 1.05rem;
-  padding: 12px 22px;
+  padding: 12px 20px;
   font-weight: 800;
   border-radius: 12px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.35;
+  height: auto;
+  min-height: 44px;
+  box-sizing: border-box;
 }
 
 /* ---------- 2. Die 2 Haupt-Reiter (Klar & Übersichtlich) ---------- */
@@ -3599,12 +3605,26 @@ input:disabled { opacity: 0.45; }
   .focus-hero-desc {
     font-size: 0.92rem;
   }
+  .focus-hero-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
   .focus-action-btn {
     width: 100%;
+    max-width: 100%;
     justify-content: center;
-    font-size: 0.95rem;
-    padding: 11px 14px;
+    font-size: 0.92rem;
+    padding: 11px 16px;
     text-align: center;
+    white-space: normal;
+    line-height: 1.35;
+    height: auto;
+    min-height: 44px;
+    box-sizing: border-box;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
   .sub-filter-pills {
     width: 100%;
